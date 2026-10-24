@@ -62,3 +62,7 @@ Code Connect необязателен. Он включается, только �
 ## Секреты
 
 `FIGMA_TOKEN` (scope `file_content:read`) и `CHROMATIC_PROJECT_TOKEN` задаёте вы сами: в GitHub → Settings → Secrets and variables → Actions, локально — через `export`. Скилл их не запрашивает и не пишет в файлы.
+
+## Лицензия
+
+[MIT](LICENSE)
