@@ -5,6 +5,6 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Skill, Write, Edit, Bash]
 ---
 
-Дизайнер что-то поменял в Figma. Свежий экспорт лежит в .tmp/figma/export.json (скрипт синхронизации — execution/figma_sync.py). Что разъехалось между Figma и кодом и что с этим делать? Ничего пока не меняй.
+A designer changed something in Figma. The fresh export is in .tmp/figma/export.json (the sync script is execution/figma_sync.py). What has drifted between Figma and the code, and what should we do about it? Don't change anything yet.
 
 Input files: tokens/, ds/, app/, execution/, .tmp/figma/export.json

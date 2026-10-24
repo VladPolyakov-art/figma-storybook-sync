@@ -1,51 +1,51 @@
 #!/usr/bin/env python3
 """
-figma_sync.py — синхронизация «ДС в коде ↔ Figma ↔ Storybook» (после гейта ДС, этапы 10–13).
+figma_sync.py — sync "design system in code ↔ Figma ↔ Storybook" (after the design system gate, stages 10–13).
 
-Скрипт сам в Figma не ходит. Он генерирует JS для MCP-инструмента `use_figma` (Plugin API, top-level await,
-результат через `return`) и разбирает JSON, который оркестратор сохранил из ответа `use_figma`.
-Источник правды — код: tokens/tokens.json (W3C DTCG), app/src/components/**/<Name>/<Name>.tsx, ds/components.md.
+The script does not talk to Figma itself. It generates JS for the MCP tool `use_figma` (Plugin API, top-level await,
+result via `return`) and parses the JSON that the orchestrator saved from the `use_figma` response.
+The source of truth is code: tokens/tokens.json (W3C DTCG), app/src/components/**/<Name>/<Name>.tsx, ds/components.md.
 
-Модель переменных Figma (совпадает с соглашением tokens_build.py):
-  - коллекция `primitives` (mode `default`) — все группы верхнего уровня, кроме semantic*;
-  - коллекция `semantic` (modes `light` [+ `dark`, если есть `semantic-dark`]) — только алиасы на primitives;
-  - имя переменной = путь через «/»: color.gray.900 → color/gray/900, semantic.surface.default → surface/default;
-  - типы: COLOR (hex / rgb[a] → 0–1), FLOAT (px, ms, числа; rem×16, s×1000), STRING (font family, тени, easing…).
-    Составные значения (объекты typography / shadow) пропускаются и перечисляются в отчёте.
+Figma variable model (matches the tokens_build.py convention):
+  - collection `primitives` (mode `default`): all top-level groups except semantic*;
+  - collection `semantic` (modes `light` [+ `dark` if `semantic-dark` exists]): aliases to primitives only;
+  - variable name = path joined with "/": color.gray.900 → color/gray/900, semantic.surface.default → surface/default;
+  - types: COLOR (hex / rgb[a] → 0–1), FLOAT (px, ms, numbers; rem×16, s×1000), STRING (font family, shadows, easing…).
+    Composite values (typography / shadow objects) are skipped and listed in the report.
 
-Имена коллекций можно переопределить для уже существующего файла Figma: --primitives-name / --semantic-name
-или в ds/figma-map.json: "collections": {"primitives": "Primitive", "semantic": "Semantic"}.
+Collection names can be overridden for an existing Figma file: --primitives-name / --semantic-name
+or in ds/figma-map.json: "collections": {"primitives": "Primitive", "semantic": "Semantic"}.
 
-Подкоманды (у всех `--root <проект>`, по умолчанию — корень шаблона; выходы — в <root>/.tmp/figma/):
-  push-variables-js           → push-variables.js (или -1.js, -2.js… если > ~40 КБ: сначала примитивы, потом semantic).
-                                Идемпотентный upsert коллекций, режимов, переменных, алиасов, scopes, codeSyntax.
-                                Возвращает {created, updated, skipped, errors}. Без throw.
-  export-js                   → export.js — read-only. Возвращает {fileKey, variables, components} (формат — в EXPORT_DOC).
-  check --figma <json>        → drift.md + резюме в stdout. Код выхода 1 — есть расхождения код ↔ Figma.
+Subcommands (all take `--root <project>`, default is the template root; outputs go to <root>/.tmp/figma/):
+  push-variables-js           → push-variables.js (or -1.js, -2.js… if > ~40 KB: primitives first, then semantic).
+                                Idempotent upsert of collections, modes, variables, aliases, scopes, codeSyntax.
+                                Returns {created, updated, skipped, errors}. No throw.
+  export-js                   → export.js — read-only. Returns {fileKey, variables, components} (format in EXPORT_DOC).
+  check --figma <json>        → drift.md + a summary on stdout. Exit code 1 means code ↔ Figma drift.
                                 [--only tokens|components]
   init-tokens --figma <json> [--force]
-                              — один раз для проекта, где ДС пока только в Figma: Variables → tokens.json (DTCG).
-                                Потом источник правды — tokens.json, а Figma — копия (дальше push / check / pull).
+                              — once, for a project whose design system lives only in Figma: Variables → tokens.json (DTCG).
+                                After that the source of truth is tokens.json and Figma is a copy (then push / check / pull).
   pull-variables --figma <json> [--apply]
-                              — значения, изменённые в Figma, → tokens.json. Без --apply только diff.
-                                Алиасы semantic меняются, только если в Figma сменили цель алиаса.
-                                Новые переменные Figma не добавляются — только перечисляются.
+                              — values changed in Figma → tokens.json. Without --apply it only prints a diff.
+                                Semantic aliases change only if the alias target was changed in Figma.
+                                New Figma variables are not added, only listed.
   map --figma <json> [--file-key K] [--refresh]
-                              → ds/figma-map.json (сопоставление по имени, ручные правки не затираются).
-  storybook-links             → app/src/stories/figma-links.ts (title → URL узла в Figma). Без карты — тихо выходит.
+                              → ds/figma-map.json (matched by name, manual edits are not overwritten).
+  storybook-links             → app/src/stories/figma-links.ts (title → Figma node URL). Exits quietly without a map.
   code-connect [--label React|Storybook]
-                              → code-connect.json — массив для `send_code_connect_mappings`.
+                              → code-connect.json, an array for `send_code_connect_mappings`.
   fetch-rest [--file-key K] [--out F]
-                              → .tmp/figma/rest.json — компоненты и варианты через REST API Figma (для CI, без MCP).
-                                Личный токен — из переменной окружения FIGMA_TOKEN (задаёт пользователь, в файлы не кладём).
-                                Variables через REST доступны только на Enterprise — их нет, поэтому дальше
+                              → .tmp/figma/rest.json — components and variants via the Figma REST API (for CI, no MCP).
+                                The personal token comes from the FIGMA_TOKEN environment variable (set by the user, never put in files).
+                                Variables over REST are available only on Enterprise, so there are none; then run
                                 `check --figma .tmp/figma/rest.json --only components`.
 
-Пути проекта (копия для скилла figma-storybook-sync): по умолчанию раскладка product-builder; другую раскладку
-задаёт <root>/figma-sync.json → "paths" (ключи — в DEFAULT_PATHS, пути от корня проекта).
+Project paths (copy for the figma-storybook-sync skill): the default is the product-builder layout; another layout
+is set by <root>/figma-sync.json → "paths" (keys are in DEFAULT_PATHS, paths are relative to the project root).
 
-Запуск: python3 figma_sync.py <подкоманда> --root <путь к проекту> [...]. Только stdlib;
-в сеть ходит только fetch-rest.
+Run: python3 figma_sync.py <subcommand> --root <project path> [...]. Stdlib only;
+only fetch-rest uses the network.
 """
 import argparse
 import json
@@ -59,8 +59,8 @@ from pathlib import Path
 TEMPLATE_ROOT = Path(__file__).resolve().parent.parent
 ALIAS = re.compile(r"^\{([^}]+)\}$")
 PRIM, SEM = "primitives", "semantic"
-PART_LIMIT = 40_000  # байт на один вызов use_figma
-IGNORE_FIGMA = re.compile(r"^(icons?(/|$)|_|\.)", re.I)  # иконки и приватные компоненты Figma не сверяем
+PART_LIMIT = 40_000  # bytes per use_figma call
+IGNORE_FIGMA = re.compile(r"^(icons?(/|$)|_|\.)", re.I)  # Figma icons and private components are not checked
 
 DEFAULT_PATHS = {
     "tokens": "tokens/tokens.json",
@@ -76,7 +76,7 @@ _paths = {}
 
 
 def path_of(root, key):
-    """Путь проекта по ключу DEFAULT_PATHS с учётом <root>/figma-sync.json → "paths"."""
+    """Project path by DEFAULT_PATHS key, honoring <root>/figma-sync.json → "paths"."""
     if root not in _paths:
         cfg = root / "figma-sync.json"
         over = json.loads(cfg.read_text(encoding="utf-8")).get("paths", {}) if cfg.exists() else {}
@@ -98,10 +98,10 @@ EXPORT_DOC = """{
 }"""
 
 
-# ───────────────────────── токены → модель Figma ─────────────────────────
+# ───────────────────────── tokens → Figma model ─────────────────────────
 
 def flatten(node, path=()):
-    """{('a','b'): {'$value', '$type', ...}} с наследованием $type от групп (как в tokens_build.py)."""
+    """{('a','b'): {'$value', '$type', ...}} with $type inherited from groups (as in tokens_build.py)."""
     out = {}
     gtype = node.get("$type")
     for k, v in node.items():
@@ -136,7 +136,7 @@ RGB = re.compile(r"^rgba?\(\s*([^)]*)\)$", re.I)
 
 
 def parse_color(v):
-    """→ (r, g, b, a) в 0–1 или None."""
+    """→ (r, g, b, a) in 0–1 or None."""
     if isinstance(v, dict):
         if isinstance(v.get("hex"), str):
             c = parse_color(v["hex"])
@@ -182,7 +182,7 @@ UNIT = re.compile(r"^(-?\d*\.?\d+)\s*(px|rem|ms|s|%|em)?$")
 
 
 def to_float(v):
-    """dimension / duration / число → (float, unit) или None."""
+    """dimension / duration / number → (float, unit) or None."""
     if isinstance(v, bool):
         return None
     if isinstance(v, (int, float)):
@@ -208,24 +208,24 @@ def first_family(v):
 
 
 def to_figma(value, ttype):
-    """Значение токена → (тип Figma, значение) или (None, причина пропуска)."""
+    """Token value → (Figma type, value) or (None, skip reason)."""
     if ttype == "color" or (ttype is None and isinstance(value, str) and (HEX.match(value) or RGB.match(value))):
         c = parse_color(value)
         if c is None:
-            return None, f"цвет «{value}» не разобран (поддержка: hex, rgb[a])"
+            return None, f"color \"{value}\" not parsed (supported: hex, rgb[a])"
         return "COLOR", {k: round(x, 4) for k, x in zip("rgba", c)}
     if ttype == "fontFamily":
         return "STRING", first_family(value)
     if isinstance(value, bool):
         return "BOOLEAN", value
     if isinstance(value, dict) and not ("value" in value and "unit" in value):
-        return None, f"составное значение ({ttype or 'объект'}) — Figma Variables его не хранят"
+        return None, f"composite value ({ttype or 'object'}): Figma Variables cannot store it"
     if isinstance(value, list):
         if ttype == "cubicBezier" and all(isinstance(x, (int, float)) for x in value):
             return "STRING", "cubic-bezier(" + ", ".join(str(num(float(x))) for x in value) + ")"
         if all(isinstance(x, (str, int, float)) for x in value):
             return "STRING", ", ".join(str(x) for x in value)
-        return None, "составной список — Figma Variables его не хранят"
+        return None, "composite list: Figma Variables cannot store it"
     f = to_float(value)
     if f is not None:
         x, unit = f
@@ -236,19 +236,19 @@ def to_figma(value, ttype):
         if unit == "s":
             return "FLOAT", num(x * 1000)
         if unit == "em":
-            return "FLOAT", num(x)  # letter-spacing: Figma привязывает только FLOAT; em хранится числом, pull вернёт em
-        return "STRING", f"{num(x)}{unit}"  # % — без потерь строкой
+            return "FLOAT", num(x)  # letter-spacing: Figma binds FLOAT only; em is stored as a number, pull returns em
+        return "STRING", f"{num(x)}{unit}"  # % — kept as a string, lossless
     return "STRING", str(value)
 
 
 def scopes_for(col, name, ftype, show_prim_colors=False):
-    """Явные scopes Figma по типу и имени переменной."""
+    """Explicit Figma scopes by variable type and name."""
     n = name.lower()
     segs = set(re.split(r"[/\-_.]", n))
     has = lambda *ws: any(w in segs for w in ws)
     if ftype == "COLOR":
         if col == PRIM and not show_prim_colors:
-            return []  # примитивы цвета скрыты из пикеров — дизайнер берёт semantic
+            return []  # color primitives are hidden from pickers; the designer uses semantic
         if has("shadow", "elevation"):
             return ["EFFECT_COLOR"]
         if has("fg") or any(s.startswith("text") for s in segs):
@@ -285,7 +285,7 @@ def scopes_for(col, name, ftype, show_prim_colors=False):
             return ["GAP"]
         if has("size", "density", "width", "height", "icon", "avatar", "control"):
             return ["WIDTH_HEIGHT"]
-        return []  # duration, z-index и прочее — к свойствам слоя не привязывается
+        return []  # duration, z-index and the like are not bound to layer properties
     if ftype == "STRING":
         if has("family"):
             return ["FONT_FAMILY"]
@@ -298,20 +298,20 @@ def scopes_for(col, name, ftype, show_prim_colors=False):
 def load_tokens(root):
     src = path_of(root, "tokens")
     if not src.exists():
-        sys.exit(f"✗ нет {src}")
+        sys.exit(f"✗ missing {src}")
     return json.loads(src.read_text(encoding="utf-8"))
 
 
 def build_model(data, show_prim_colors=False):
-    """tokens.json → {collections: [{name, modes, vars: [...]}], skipped: [(путь, причина)], index}.
-    var = {name, type, scopes, description, codeSyntax, values: {mode: {"v": значение} | {"a": [col, name]}},
-           paths: {mode: путь в tokens.json}, fallback: {mode: True, если значение взято из другого режима}}."""
+    """tokens.json → {collections: [{name, modes, vars: [...]}], skipped: [(path, reason)], index}.
+    var = {name, type, scopes, description, codeSyntax, values: {mode: {"v": value} | {"a": [col, name]}},
+           paths: {mode: path in tokens.json}, fallback: {mode: True if the value is taken from another mode}}."""
     flat = flatten(data)
     by_path = dict(flat)
     skipped = []
 
     def target(alias_path, seen=()):
-        """Путь, на который ведёт алиас (с разворотом цепочки алиасов среди примитивов — только для типа)."""
+        """Path the alias points to (alias chains among primitives are followed, for the type only)."""
         key = tuple(alias_path.split("."))
         if key not in by_path or key in seen:
             return None
@@ -323,7 +323,7 @@ def build_model(data, show_prim_colors=False):
         m = ALIAS.match(val) if isinstance(val, str) else None
         if m:
             t = target(m.group(1))
-            return ftype_of(t, seen + (path,)) if t and t not in seen else (None, "алиас не найден")
+            return ftype_of(t, seen + (path,)) if t and t not in seen else (None, "alias not found")
         return to_figma(val, tok.get("$type"))
 
     def entry(path):
@@ -353,7 +353,7 @@ def build_model(data, show_prim_colors=False):
                       "description": by_path[p].get("$description", ""), "codeSyntax": css_var(p),
                       "values": {"default": {k: e[k] for k in ("v", "a") if k in e}},
                       "paths": {"default": p}, "fallback": {}})
-    # алиасы внутри primitives — после своих целей
+    # aliases inside primitives come after their targets
     pvars.sort(key=lambda v: "a" in v["values"]["default"])
     collections.append({"name": PRIM, "modes": ["default"], "vars": pvars})
 
@@ -378,7 +378,7 @@ def build_model(data, show_prim_colors=False):
                     ok = False
                     break
                 if typ and e["type"] != typ:
-                    skipped.append((".".join(p), f"тип в режимах разный: {typ} / {e['type']}"))
+                    skipped.append((".".join(p), f"type differs between modes: {typ} / {e['type']}"))
                     ok = False
                     break
                 typ = e["type"]
@@ -389,7 +389,7 @@ def build_model(data, show_prim_colors=False):
             svars.append({"name": name, "type": typ, "scopes": scopes_for(SEM, name, typ),
                           "description": by_path[first].get("$description", ""), "codeSyntax": css_var(first),
                           "values": vals, "paths": {m: paths.get(m, first) for m in modes}, "fallback": fb})
-        # алиасы semantic → semantic — после целей
+        # semantic → semantic aliases come after their targets
         svars.sort(key=lambda v: any(x.get("a", [PRIM])[0] == SEM for x in v["values"].values()))
         collections.append({"name": SEM, "modes": modes, "vars": svars})
 
@@ -398,7 +398,7 @@ def build_model(data, show_prim_colors=False):
             "modes": {c["name"]: c["modes"] for c in collections}}
 
 
-# ───────────────────────── JS для use_figma ─────────────────────────
+# ───────────────────────── JS for use_figma ─────────────────────────
 
 PUSH_RUNTIME = r"""
 const R = { part: DATA.part, created: 0, updated: 0, skipped: 0, errors: [] };
@@ -429,7 +429,7 @@ for (const col of DATA.collections) {
     }
     if (!mode) {
       try { mode = { modeId: c.addMode(m), name: m }; }
-      catch (e) { R.errors.push('mode ' + col.name + '/' + m + ' (тариф ограничивает режимы?): ' + e.message); }
+      catch (e) { R.errors.push('mode ' + col.name + '/' + m + ' (does the plan limit modes?): ' + e.message); }
     }
     if (mode) modeIds[col.name][m] = mode.modeId;
   }
@@ -440,7 +440,7 @@ for (const col of DATA.collections) {
     try {
       let v = findVar(col.name, d.n), isNew = false;
       if (v && v.resolvedType !== d.t) {
-        R.skipped++; R.errors.push(col.name + '/' + d.n + ': в Figma тип ' + v.resolvedType + ', в коде ' + d.t + ' — не трогаю');
+        R.skipped++; R.errors.push(col.name + '/' + d.n + ': Figma has type ' + v.resolvedType + ', code has ' + d.t + ' (left untouched)');
         continue;
       }
       if (!v) { v = figma.variables.createVariable(d.n, c, d.t); byKey.set(c.id + '::' + d.n, v); isNew = true; }
@@ -451,7 +451,7 @@ for (const col of DATA.collections) {
         let want = val.v;
         if (val.a) {
           const t = findVar(val.a[0], val.a[1]);
-          if (!t) { R.errors.push(col.name + '/' + d.n + ': нет цели алиаса ' + val.a.join(' → ')); continue; }
+          if (!t) { R.errors.push(col.name + '/' + d.n + ': alias target not found ' + val.a.join(' → ')); continue; }
           want = figma.variables.createVariableAlias(t);
         }
         if (!same(v.valuesByMode[mid], want, d.t)) { v.setValueForMode(mid, want); changed = true; }
@@ -466,8 +466,8 @@ for (const col of DATA.collections) {
 return R;
 """
 
-EXPORT_JS = r"""// figma_sync.py export-js — read-only: переменные и компоненты файла. Ответ сохранить в .tmp/figma/export.json
-// Ответ use_figma ≤ 48 КБ: большую ДС выгружать частями (export-variables-*.js, export-components.js → .tmp/figma/export/*.json)
+EXPORT_JS = r"""// figma_sync.py export-js — read-only: the file's variables and components. Save the response to .tmp/figma/export.json
+// A use_figma response must be ≤ 48 KB: export a large design system in parts (export-variables-*.js, export-components.js → .tmp/figma/export/*.json)
 const PART = 'all', ONLY_COLLECTION = null;
 const hx = x => Math.round(x * 255).toString(16).padStart(2, '0').toUpperCase();
 const hex = c => '#' + hx(c.r) + hx(c.g) + hx(c.b) + ((c.a ?? 1) < 1 ? hx(c.a) : '');
@@ -498,7 +498,7 @@ for (const c of cols) {
     }
   }
 }
-// loadAllPagesAsync запрещён в Figma MCP — грузим страницы по одной
+// loadAllPagesAsync is forbidden in Figma MCP, so load pages one at a time
 const components = [];
 const parseVariantName = n => n.split(',').map(s => s.split('=').map(x => x.trim())).filter(p => p.length === 2);
 for (const page of (PART === 'variables' ? [] : figma.root.children)) {
@@ -537,12 +537,12 @@ def dumps(o):
 
 
 def push_js(data_obj):
-    return ("// figma_sync.py push-variables-js — сгенерировано, руками не править. Вызов use_figma целиком.\n"
+    return ("// figma_sync.py push-variables-js — generated, do not edit by hand. Pass the whole file to use_figma.\n"
             f"const DATA = {dumps(data_obj)};\n" + PUSH_RUNTIME)
 
 
 def push_parts(model, limit=PART_LIMIT):
-    """Режет переменные на части ≤ limit байт; граница коллекции — всегда граница части при разрезании."""
+    """Splits variables into parts of ≤ limit bytes; when splitting, a collection boundary is always a part boundary."""
     whole = {"part": "1/1", "collections": [{"name": c["name"], "modes": c["modes"],
                                              "vars": [compact_var(v) for v in c["vars"]]} for c in model["collections"]]}
     if len(push_js(whole).encode("utf-8")) <= limit:
@@ -590,15 +590,15 @@ def cmd_push(args):
             f.write_text(push_js(p), encoding="utf-8")
             files.append(f)
     counts = {c["name"]: len(c["vars"]) for c in model["collections"]}
-    print(f"✓ переменных: " + ", ".join(f"{k} {n}" for k, n in counts.items())
-          + f"; режимы semantic: {', '.join(model['modes'].get(SEM, [])) or '—'}")
+    print(f"✓ variables: " + ", ".join(f"{k} {n}" for k, n in counts.items())
+          + f"; semantic modes: {', '.join(model['modes'].get(SEM, [])) or '—'}")
     for f in files:
-        print(f"  → {f.relative_to(root)} ({f.stat().st_size // 1024} КБ)")
+        print(f"  → {f.relative_to(root)} ({f.stat().st_size // 1024} KB)")
     if model["skipped"]:
-        print(f"! пропущено {len(model['skipped'])} токенов (не ложатся в Figma Variables):")
+        print(f"! skipped {len(model['skipped'])} tokens (they do not fit Figma Variables):")
         for p, why in model["skipped"]:
             print(f"  · {p}: {why}")
-    print("Дальше: каждый файл по порядку — use_figma (код целиком), затем export-js → check.")
+    print("Next: pass each file to use_figma in order (whole code), then export-js → check.")
     return 0
 
 
@@ -613,19 +613,19 @@ def cmd_export(args):
         pf = d / f"export-variables-{re.sub(r'[^A-Za-z0-9]+', '-', col).strip('-').lower()}.js"
         pf.write_text(EXPORT_JS.replace(head, f"const PART = 'variables', ONLY_COLLECTION = {json.dumps(col)};"), encoding="utf-8")
         parts.append(pf)
-    print(f"✓ {f.relative_to(args.root)} — read-only. Ответ use_figma сохранить в .tmp/figma/export.json:")
+    print(f"✓ {f.relative_to(args.root)} — read-only. Save the use_figma response to .tmp/figma/export.json:")
     print(EXPORT_DOC)
-    print("Если ответ > 48 КБ (лимит use_figma) — части по одной, каждый ответ в .tmp/figma/export/<часть>.json, "
-          "затем check/map --figma .tmp/figma/export (папка склеивается):")
+    print("If the response is > 48 KB (the use_figma limit), run the parts one by one, each response in .tmp/figma/export/<part>.json, "
+          "then check/map --figma .tmp/figma/export (the folder is merged):")
     for pf in parts:
         print(f"  → {pf.relative_to(args.root)}")
     return 0
 
 
-# ───────────────────────── разбор ответа Figma ─────────────────────────
+# ───────────────────────── parsing the Figma response ─────────────────────────
 
 def find_payload(o):
-    """Достаёт {variables, components} из ответа как есть или из обёртки MCP (content/text/result)."""
+    """Extracts {variables, components} from a response as is or from an MCP wrapper (content/text/result)."""
     if isinstance(o, str):
         try:
             return find_payload(json.loads(o))
@@ -649,8 +649,8 @@ def find_payload(o):
 def load_figma(path):
     p = Path(path)
     if not p.exists():
-        sys.exit(f"✗ нет {p} — сохрани ответ use_figma (export.js) в этот файл")
-    if p.is_dir():  # выгрузка частями (лимит ответа use_figma) — склеиваем
+        sys.exit(f"✗ missing {p}: save the use_figma response (export.js) to this file")
+    if p.is_dir():  # export in parts (use_figma response limit): merge them
         payload = {"fileKey": None, "variables": [], "components": []}
         for f in sorted(p.glob("*.json")):
             part = find_payload(f.read_text(encoding="utf-8"))
@@ -660,11 +660,11 @@ def load_figma(path):
             payload["variables"] += part.get("variables") or []
             payload["components"] += part.get("components") or []
         if not payload["variables"] and not payload["components"]:
-            sys.exit(f"✗ в {p}/*.json нет объектов с variables / components")
+            sys.exit(f"✗ no objects with variables / components in {p}/*.json")
     else:
         payload = find_payload(p.read_text(encoding="utf-8"))
     if payload is None:
-        sys.exit(f"✗ в {p} нет объекта с variables / components")
+        sys.exit(f"✗ no object with variables / components in {p}")
     vars_ = {}
     modes = {}
     for r in payload.get("variables") or []:
@@ -683,7 +683,7 @@ def load_figma(path):
 
 
 def canon(ftype, v):
-    """Нормальная форма значения для сравнения."""
+    """Normal form of a value for comparison."""
     if v is None:
         return None
     if ftype == "COLOR":
@@ -698,7 +698,7 @@ def canon(ftype, v):
 
 
 def resolve(vars_, modes, col, name, mode, seen=()):
-    """Финальное значение (каноническое) с разворотом алиасов. Цель алиаса — в своём первом режиме."""
+    """Final (canonical) value with aliases resolved. The alias target is taken in its first mode."""
     v = vars_.get((col, name))
     if v is None or (col, name) in seen:
         return None
@@ -719,14 +719,14 @@ def code_vars(model):
     return {k: {"type": v["type"], "modes": v["values"]} for k, v in model["index"].items()}
 
 
-# ───────────────────────── компоненты: каталог, код, stories ─────────────────────────
+# ───────────────────────── components: catalog, code, stories ─────────────────────────
 
 PASCAL = re.compile(r"^[A-Z][a-z0-9]*[A-Z0-9]?[A-Za-z0-9]*$")
 
 
 def doc_components(root):
-    """Имена-якоря из ds/components.md: заголовки ###/#### (с номером «5.1 » и без), строки таблиц
-    «| **Name** |» (короткие записи каталога), `<a id="Name">`."""
+    """Anchor names from ds/components.md: ###/#### headings (with a number like "5.1 " or without), table rows
+    "| **Name** |" (short catalog entries), `<a id="Name">`."""
     f = path_of(root, "components_doc")
     if not f.exists():
         return set()
@@ -734,9 +734,9 @@ def doc_components(root):
     comp_table, prev_row = False, False
     for line in f.read_text(encoding="utf-8").splitlines():
         row = line.startswith("|")
-        if row and not prev_row:  # шапка таблицы: строки «| **Name** |» берём только из таблиц компонентов
+        if row and not prev_row:  # table header: "| **Name** |" rows are taken only from component tables
             first = line.strip("|").split("|")[0].strip().lower()
-            comp_table = first in ("компонент", "component", "name", "имя")
+            comp_table = first in ("\u043a\u043e\u043c\u043f\u043e\u043d\u0435\u043d\u0442", "component", "name", "\u0438\u043c\u044f")  # includes the Russian headers "komponent" and "imya" (written as escapes)
         prev_row = row
         for m in re.finditer(r'<a\s+(?:id|name)="([A-Z][A-Za-z0-9]+)"', line):
             names.add(m.group(1))
@@ -749,7 +749,7 @@ def doc_components(root):
 
 
 def code_components(root):
-    """{Name: путь к Name.tsx от корня} — папки <components_dir>/**/<Name>/<Name>.tsx (или .jsx)."""
+    """{Name: path to Name.tsx from the root}: folders <components_dir>/**/<Name>/<Name>.tsx (or .jsx)."""
     base = path_of(root, "components_dir")
     out = {}
     if not base.exists():
@@ -761,7 +761,7 @@ def code_components(root):
 
 
 def story_info(root, code):
-    """{Name: {title, stories: [имена], argOptions: {prop: [значения]}, file}} из *.stories.tsx и storybook-static."""
+    """{Name: {title, stories: [names], argOptions: {prop: [values]}, file}} from *.stories.tsx and storybook-static."""
     info = {}
     for name, src in code.items():
         f = next((x for ext in (".tsx", ".jsx", ".ts", ".js")
@@ -811,8 +811,8 @@ def norm(s):
 
 
 def figma_components(fig, code=None):
-    """{Name: компонент Figma} (предпочтение COMPONENT_SET), [дубли], [игнор].
-    `Parent/Part` (DataTable/Row, Tabs/Item) при известном `code` — часть компонента Parent, а не отдельный."""
+    """{Name: Figma component} (COMPONENT_SET preferred), [duplicates], [ignored].
+    `Parent/Part` (DataTable/Row, Tabs/Item), when `code` is known, is a part of component Parent, not a separate one."""
     out, dups, ignored, parts = {}, [], [], {}
     for c in fig["components"]:
         if IGNORE_FIGMA.match(c["name"].strip()):
@@ -833,8 +833,8 @@ def figma_components(fig, code=None):
             continue
         out[n] = c
     for parent, ps in parts.items():
-        if parent not in out:  # в Figma только части — ссылка ведёт на первую (🟡)
-            out[parent] = {**ps[0], "name": ps[0]["name"] + " (часть)", "variantProps": {}}
+        if parent not in out:  # Figma has only parts; the link points to the first one (🟡)
+            out[parent] = {**ps[0], "name": ps[0]["name"] + " (part)", "variantProps": {}}
     return out, dups, ignored
 
 
@@ -863,40 +863,40 @@ def check_tokens(model, fig):
         f = fv.get((col, name))
         label = f"{col}/{name}"
         if f is None:
-            drift.append(("нет в Figma", label, "", ""))
+            drift.append(("missing in Figma", label, "", ""))
             continue
         if f["type"] and f["type"] != c["type"]:
-            drift.append(("тип", label, c["type"], f["type"]))
+            drift.append(("type", label, c["type"], f["type"]))
             continue
         for mode, cval in c["modes"].items():
             if mode not in f["modes"]:
-                drift.append(("нет режима", f"{label} [{mode}]", fmt_val(cval), "—"))
+                drift.append(("missing mode", f"{label} [{mode}]", fmt_val(cval), "—"))
                 continue
             fval = f["modes"][mode]
             ca, fa = cval.get("a"), fval.get("a")
             if ca and fa:
                 if list(ca) != list(fa):
-                    drift.append(("алиас", f"{label} [{mode}]", "→ " + "/".join(ca), "→ " + "/".join(fa)))
-                continue  # одинаковая цель: расхождение значения цели уже в её строке
+                    drift.append(("alias", f"{label} [{mode}]", "→ " + "/".join(ca), "→ " + "/".join(fa)))
+                continue  # same target: the target's value drift is already in its own row
             if ca and not fa:
-                drift.append(("алиас отвязан в Figma", f"{label} [{mode}]", "→ " + "/".join(ca), str(fval.get("v"))))
+                drift.append(("alias unbound in Figma", f"{label} [{mode}]", "→ " + "/".join(ca), str(fval.get("v"))))
                 continue
             if fa and not ca:
-                drift.append(("в Figma алиас, в коде значение", f"{label} [{mode}]", fmt_val(cval), "→ " + "/".join(fa)))
+                drift.append(("alias in Figma, value in code", f"{label} [{mode}]", fmt_val(cval), "→ " + "/".join(fa)))
                 continue
             a = resolve(cv, cm, col, name, mode)
             b = resolve(fv, fm, col, name, mode)
             if a != b:
-                drift.append(("значение", f"{label} [{mode}]", str(a), str(b)))
+                drift.append(("value", f"{label} [{mode}]", str(a), str(b)))
     ours = {PRIM, SEM}
     for (col, name) in fv:
         if col in ours and (col, name) not in cv:
-            drift.append(("нет в коде", f"{col}/{name}", "", ""))
+            drift.append(("missing in code", f"{col}/{name}", "", ""))
     other = sorted({col for col, _ in fv if col not in ours})
     if other:
-        info.append("Коллекции Figma вне синхронизации: " + ", ".join(f"`{o}`" for o in other))
+        info.append("Figma collections outside the sync: " + ", ".join(f"`{o}`" for o in other))
     if model["skipped"]:
-        info.append(f"Токены, которые не ложатся в Variables ({len(model['skipped'])}): "
+        info.append(f"Tokens that do not fit Variables ({len(model['skipped'])}): "
                     + ", ".join(f"`{p}`" for p, _ in model["skipped"]))
     return drift, info
 
@@ -908,25 +908,25 @@ def check_components(root, fig):
     stories = story_info(root, code)
     drift, info, heur = [], [], []
     for n in sorted(set(code) - set(figc)):
-        drift.append(("нет в Figma", n, code[n]))
+        drift.append(("missing in Figma", n, code[n]))
     for n in sorted(set(figc) - set(code)):
         if n in doc:
-            info.append(f"`{n}` — в Figma и каталоге, но без кода (каталог без кода?)")
+            info.append(f"`{n}`: in Figma and the catalog, but no code (catalog without code?)")
         else:
-            drift.append(("только в Figma", n, f"{figc[n]['name']} · {figc[n]['nodeId']} · {figc[n].get('page', '')}"))
+            drift.append(("only in Figma", n, f"{figc[n]['name']} · {figc[n]['nodeId']} · {figc[n].get('page', '')}"))
     if doc:
         for n in sorted(set(doc) - set(code)):
-            info.append(f"`{n}` — в ds/components.md, нет в коде")
+            info.append(f"`{n}`: in ds/components.md, missing in code")
         for n in sorted(set(code) - set(doc)):
-            info.append(f"`{n}` — в коде, нет якоря в ds/components.md (имя = якорь!)")
+            info.append(f"`{n}`: in code, no anchor in ds/components.md (name = anchor!)")
     else:
-        info.append("ds/components.md не найден или без заголовков-якорей")
+        info.append("ds/components.md not found or has no anchor headings")
     if dups:
-        info.append("Дубли имён в Figma (взят COMPONENT_SET / первый): " + ", ".join(f"`{d}`" for d in dups))
+        info.append("Duplicate names in Figma (COMPONENT_SET / first one taken): " + ", ".join(f"`{d}`" for d in dups))
     if ignored:
-        info.append(f"Не сверялись (иконки / приватные `_`, `.`): {len(ignored)}")
+        info.append(f"Not checked (icons / private `_`, `.`): {len(ignored)}")
 
-    # варианты
+    # variants
     for n in sorted(set(code) & set(figc)):
         vp = figc[n].get("variantProps") or {}
         st = stories.get(n, {})
@@ -940,38 +940,38 @@ def check_components(root, fig):
                 only_f = [x for x in values if norm(x) not in ca]
                 only_c = [x for x in cvals if norm(x) not in fa]
                 if only_f or only_c:
-                    drift.append(("варианты", n, f"{prop}: только Figma {only_f or '—'} · только код ({k}) {only_c or '—'}"))
+                    drift.append(("variants", n, f"{prop}: only Figma {only_f or '—'} · only code ({k}) {only_c or '—'}"))
                 continue
             if not snames:
                 continue
             miss = [x for x in values if norm(x) not in ("true", "false", "default", "")
                     and not any(norm(x) in s for s in snames)]
             if miss:
-                heur.append(f"`{n}` · {prop}: нет story с {', '.join(miss)}")
+                heur.append(f"`{n}` · {prop}: no story with {', '.join(miss)}")
     return drift, info, heur, figc
 
 
 def cmd_check(args):
     root = args.root
     fig = load_figma(args.figma)
-    lines = ["# Сверка код ↔ Figma", "",
-             "Генерирует `execution/figma_sync.py check` — руками не править. Источник правды — код.", ""]
+    lines = ["# Code ↔ Figma drift check", "",
+             "Generated by `execution/figma_sync.py check`; do not edit by hand. The source of truth is code.", ""]
     total = 0
     summary = []
     if args.only is None and not fig["vars"] and fig["components"]:
-        args.only = "components"  # выгрузка без Variables (REST на не-Enterprise) — токены не сверяем
-        summary.append("токены не сверялись: в выгрузке нет Variables")
+        args.only = "components"  # export without Variables (REST below Enterprise): tokens are not checked
+        summary.append("tokens not checked: the export has no Variables")
     if args.only in (None, "tokens"):
         model = build_model(load_tokens(root))
         tdrift, tinfo = check_tokens(model, fig)
         total += len(tdrift)
-        summary.append(f"токены: {len(model['index'])} в коде, {len(fig['vars'])} в Figma, расхождений {len(tdrift)}")
-        lines += [f"## Токены — расхождений {len(tdrift)}", ""]
+        summary.append(f"tokens: {len(model['index'])} in code, {len(fig['vars'])} in Figma, drift {len(tdrift)}")
+        lines += [f"## Tokens — drift {len(tdrift)}", ""]
         if tdrift:
-            lines += ["| Что | Переменная | Код | Figma |", "|---|---|---|---|"]
+            lines += ["| What | Variable | Code | Figma |", "|---|---|---|---|"]
             lines += [f"| {k} | `{n}` | {a} | {b} |" for k, n, a, b in tdrift]
         else:
-            lines.append("Всё совпало.")
+            lines.append("Everything matches.")
         lines += [""] + [f"- {i}" for i in tinfo] + [""]
     if args.only in (None, "components"):
         cdrift, cinfo, heur, figc = check_components(root, fig)
@@ -980,21 +980,21 @@ def cmd_check(args):
         broken = [(n, e.get("nodeId")) for n, e in (fmap.get("components") or {}).items()
                   if e.get("nodeId") and e["nodeId"] not in node_ids]
         total += len(cdrift) + len(broken)
-        summary.append(f"компоненты: {len(code_components(root))} в коде, {len(figc)} в Figma, "
-                       f"расхождений {len(cdrift)}, битых nodeId в карте {len(broken)}")
-        lines += [f"## Компоненты — расхождений {len(cdrift)}", ""]
+        summary.append(f"components: {len(code_components(root))} in code, {len(figc)} in Figma, "
+                       f"drift {len(cdrift)}, broken nodeIds in the map {len(broken)}")
+        lines += [f"## Components — drift {len(cdrift)}", ""]
         if cdrift:
-            lines += ["| Что | Компонент | Детали |", "|---|---|---|"]
+            lines += ["| What | Component | Details |", "|---|---|---|"]
             lines += [f"| {k} | `{n}` | {d} |" for k, n, d in cdrift]
         else:
-            lines.append("Всё совпало.")
-        lines += ["", f"## ds/figma-map.json — битых nodeId {len(broken)}", ""]
+            lines.append("Everything matches.")
+        lines += ["", f"## ds/figma-map.json — broken nodeIds {len(broken)}", ""]
         if not fmap:
-            lines.append("Карты нет — `figma_sync.py map --figma …`.")
-        lines += [f"- `{n}` → `{nid}` нет в Figma" for n, nid in broken]
-        lines += ["", "## Варианты по названиям stories 🟡 (эвристика, в код выхода не входит)", ""]
-        lines += [f"- {h}" for h in heur] or ["Замечаний нет."]
-        lines += ["", "## Каталог ↔ код (справочно)", ""] + [f"- {i}" for i in cinfo] + [""]
+            lines.append("No map — `figma_sync.py map --figma …`.")
+        lines += [f"- `{n}` → `{nid}` missing in Figma" for n, nid in broken]
+        lines += ["", "## Variants by story names 🟡 (heuristic, not part of the exit code)", ""]
+        lines += [f"- {h}" for h in heur] or ["No findings."]
+        lines += ["", "## Catalog ↔ code (for reference)", ""] + [f"- {i}" for i in cinfo] + [""]
     f = out_dir(root) / "drift.md"
     f.write_text("\n".join(lines) + "\n", encoding="utf-8")
     mark = "✗" if total else "✓"
@@ -1015,7 +1015,7 @@ def rest_get(url, token):
 
 
 def rest_components(doc):
-    """Документ из GET /v1/files/:key → components в формате EXPORT_DOC (как export.js: наборы + одиночные)."""
+    """Document from GET /v1/files/:key → components in the EXPORT_DOC format (as export.js: sets + single components)."""
     out = []
 
     def walk(node, page, parent_type):
@@ -1025,7 +1025,7 @@ def rest_components(doc):
             for k, d in (node.get("componentPropertyDefinitions") or {}).items():
                 if d.get("type") == "VARIANT":
                     vp[k.split("#")[0]] = d.get("variantOptions") or []
-            if t == "COMPONENT_SET" and not vp:  # старые файлы: варианты из имён детей «Prop=val, …»
+            if t == "COMPONENT_SET" and not vp:  # older files: variants come from child names like "Prop=val, …"
                 for ch in node.get("children") or []:
                     for pair in str(ch.get("name", "")).split(","):
                         if "=" in pair:
@@ -1049,36 +1049,36 @@ def cmd_fetch_rest(args, getter=rest_get):
     root = args.root
     key = args.file_key or (load_map(root) or {}).get("fileKey")
     if not key:
-        print("✗ fileKey неизвестен: --file-key или fileKey в ds/figma-map.json (figma_sync.py map)")
+        print("✗ fileKey unknown: pass --file-key or set fileKey in ds/figma-map.json (figma_sync.py map)")
         return 2
     token = os.environ.get("FIGMA_TOKEN")
     if not token:
-        print("✗ нет FIGMA_TOKEN — личный токен Figma (Settings → Security → Personal access tokens, "
-              "scope file_content:read). Локально — в .env, в CI — в секретах репозитория. В код и чат не писать.")
+        print("✗ FIGMA_TOKEN is not set. It is a personal Figma token (Settings → Security → Personal access tokens, "
+              "scope file_content:read). Locally keep it in .env, in CI in repository secrets. Never put it in code or chat.")
         return 2
     try:
         doc = getter(f"{REST}/files/{key}", token)
     except urllib.error.HTTPError as e:
-        print(f"✗ Figma REST {e.code}: {'токен не подходит или нет доступа к файлу' if e.code in (401, 403) else e.reason}")
+        print(f"✗ Figma REST {e.code}: {'token is invalid or has no access to the file' if e.code in (401, 403) else e.reason}")
         return 2
     except (urllib.error.URLError, TimeoutError) as e:
-        print(f"✗ Figma REST недоступен: {e}")
+        print(f"✗ Figma REST unavailable: {e}")
         return 2
     comps = rest_components(doc)
     out = Path(args.out) if args.out else out_dir(root) / "rest.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"fileKey": key, "source": "rest", "variables": [], "components": comps},
                               ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    print(f"✓ {len(comps)} компонентов из Figma (REST) → {out.relative_to(root) if out.is_relative_to(root) else out}")
-    print("  Variables через REST недоступны на этом тарифе — дальше: check --figma <этот файл> --only components")
+    print(f"✓ {len(comps)} components from Figma (REST) → {out.relative_to(root) if out.is_relative_to(root) else out}")
+    print("  Variables over REST are not available on this plan. Next: check --figma <this file> --only components")
     return 0
 
 
 # ───────────────────────── init-tokens ─────────────────────────
 
 def token_from_figma(ftype, name, value):
-    """Значение Variable → токен DTCG. Единицы угадываются по имени: duration/delay → ms,
-    opacity/weight/line-height/z-index/ratio → число, остальные FLOAT → px."""
+    """Variable value → DTCG token. Units are guessed from the name: duration/delay → ms,
+    opacity/weight/line-height/z-index/ratio → number, other FLOATs → px."""
     n = name.lower()
     if ftype == "COLOR":
         c = parse_color(value)
@@ -1103,8 +1103,8 @@ def cmd_init_tokens(args):
     root = args.root
     dst = path_of(root, "tokens")
     if dst.exists() and not args.force:
-        sys.exit(f"✗ {dst.relative_to(root)} уже есть — источник правды уже в коде. "
-                 "Значения из Figma переносит pull-variables (diff → --apply); перезаписать целиком — --force")
+        sys.exit(f"✗ {dst.relative_to(root)} already exists, so the source of truth is already in code. "
+                 "pull-variables moves values from Figma (diff → --apply); to overwrite everything use --force")
     fig = load_figma(args.figma)
     sem_modes = fig["modes"].get(SEM, [])
     layer = {}
@@ -1130,7 +1130,7 @@ def cmd_init_tokens(args):
             else:
                 tok = token_from_figma(v["type"], name, val["v"])
             if tok is None:
-                skipped.append((f"{col}/{name}", f"тип {v['type']} не разобран"))
+                skipped.append((f"{col}/{name}", f"type {v['type']} not parsed"))
                 continue
             node = data
             for k in path[:-1]:
@@ -1138,32 +1138,32 @@ def cmd_init_tokens(args):
                 if "$value" in node:
                     break
             if "$value" in node or path[-1] in node:
-                skipped.append((f"{col}/{name}", "имя пересекается с группой или другим токеном"))
+                skipped.append((f"{col}/{name}", "name collides with a group or another token"))
                 continue
             node[path[-1]] = tok
             count += 1
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"✓ {dst.relative_to(root)}: {count} токенов из Figma (коллекции {PRIM}, {SEM})")
+    print(f"✓ {dst.relative_to(root)}: {count} tokens from Figma (collections {PRIM}, {SEM})")
     if sem_modes:
-        print(f"  режимы semantic: " + ", ".join(f"{m} → {layer.get(m, 'пропущен')}" for m in sem_modes))
+        print(f"  semantic modes: " + ", ".join(f"{m} → {layer.get(m, 'skipped')}" for m in sem_modes))
         if [m for m in layer if m not in ("light", "dark")]:
-            print("! check сравнивает режимы по имени light / dark — переименуй режимы в Figma или жди «нет режима»")
+            print("! check compares modes by the names light / dark: rename the modes in Figma or expect \"missing mode\"")
     other = sorted({c for c, _ in fig["vars"] if c not in (PRIM, SEM)})
     if other:
-        print("! коллекции вне синхронизации (не перенесены): " + ", ".join(other)
-              + " — если это примитивы или semantic под другим именем, задай --primitives-name / --semantic-name")
+        print("! collections outside the sync (not imported): " + ", ".join(other)
+              + "; if these are primitives or semantic under another name, pass --primitives-name / --semantic-name")
     for pth, why in skipped:
-        print(f"  · пропущено {pth}: {why}")
-    print("Составные токены (typography, shadow) в Variables не живут — перенести из TextStyles / EffectStyles руками.")
-    print("Дальше: check --figma <тот же файл> --only tokens должен быть зелёным.")
+        print(f"  · skipped {pth}: {why}")
+    print("Composite tokens (typography, shadow) do not live in Variables: move them from TextStyles / EffectStyles by hand.")
+    print("Next: check --figma <same file> --only tokens must be green.")
     return 0
 
 
 # ───────────────────────── pull-variables ─────────────────────────
 
 def from_figma(fval, orig, ttype):
-    """Значение Figma → значение токена в форме исходного."""
+    """Figma value → token value in the form of the original."""
     if ttype == "COLOR":
         c = parse_color(fval)
         if c is None:
@@ -1221,7 +1221,7 @@ def cmd_pull(args):
         for mode, fval in f["modes"].items():
             path = c["paths"].get(mode)
             if path is None:
-                new.append(f"{col}/{name} [режим {mode}]")
+                new.append(f"{col}/{name} [mode {mode}]")
                 continue
             cval = c["values"][mode]
             label = f"{col}/{name} [{mode}]"
@@ -1230,43 +1230,43 @@ def cmd_pull(args):
                 same = (cval.get("a") == fval.get("a")) if "a" in fval else (
                     "v" in cval and canon(c["type"], cval["v"]) == canon(c["type"], fval.get("v")))
                 if not same:
-                    new.append(f"{label}: своё значение в Figma, а токена в semantic-{mode} нет — добавить руками")
+                    new.append(f"{label}: has its own value in Figma, but there is no token in semantic-{mode}; add it by hand")
                 continue
             if "a" in cval:
                 if "a" not in fval:
-                    conflicts.append(f"{label}: в Figma значение {fval.get('v')} без алиаса — в semantic нельзя, не переношу")
+                    conflicts.append(f"{label}: Figma has the value {fval.get('v')} without an alias, which is not allowed in semantic; not imported")
                 elif list(fval["a"]) != list(cval["a"]):
                     t = idx.get(tuple(fval["a"]))
                     if t is None:
-                        conflicts.append(f"{label}: алиас на {'/'.join(fval['a'])} — такой переменной в коде нет")
+                        conflicts.append(f"{label}: alias to {'/'.join(fval['a'])}, but there is no such variable in code")
                         continue
                     tpath = next(iter(t["paths"].values()))
                     changes.append((path, tok["$value"], "{" + ".".join(tpath) + "}", label))
                 continue
             if "a" in fval:
-                conflicts.append(f"{label}: в Figma стал алиасом на {'/'.join(fval['a'])} — перенеси руками")
+                conflicts.append(f"{label}: became an alias to {'/'.join(fval['a'])} in Figma; move it by hand")
                 continue
             if canon(c["type"], cval["v"]) != canon(c["type"], fval.get("v")):
                 nv = from_figma(fval.get("v"), tok["$value"], c["type"])
                 if nv is None:
-                    conflicts.append(f"{label}: значение Figma «{fval.get('v')}» не разобрано")
+                    conflicts.append(f"{label}: Figma value \"{fval.get('v')}\" not parsed")
                 else:
                     changes.append((path, tok["$value"], nv, label))
-    print(f"Изменено в Figma: {len(changes)} · конфликтов: {len(conflicts)} · новых в Figma: {len(new)}")
+    print(f"Changed in Figma: {len(changes)} · conflicts: {len(conflicts)} · new in Figma: {len(new)}")
     for path, old, nv, label in changes:
         print(f"  ~ {'.'.join(path)}: {json.dumps(old, ensure_ascii=False)} → {json.dumps(nv, ensure_ascii=False)}")
     for c in conflicts:
         print(f"  ! {c}")
     for n in new:
-        print(f"  + {n} — не добавляю")
+        print(f"  + {n} (not added)")
     if args.apply and changes:
         for path, _, nv, _ in changes:
             set_path(data, path, nv)
         f = path_of(root, "tokens")
         f.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        print(f"✓ записано в {f.relative_to(root)}. Дальше: python3 execution/tokens_build.py {root}")
+        print(f"✓ written to {f.relative_to(root)}. Next: python3 execution/tokens_build.py {root}")
     elif changes:
-        print("Это diff. Записать: --apply")
+        print("This is a diff. To write it: --apply")
     return 0
 
 
@@ -1312,18 +1312,18 @@ def cmd_map(args):
     fmap = {**{k: fmap[k] for k in order if k in fmap}, **{k: v for k, v in fmap.items() if k not in order}}
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(json.dumps(fmap, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"✓ {f.relative_to(root)}: в карте {len(comps)}, новых {len(added)}, починено nodeId {len(fixed)}, "
-          f"ручных правок сохранено {len(kept)}")
+    print(f"✓ {f.relative_to(root)}: {len(comps)} in the map, {len(added)} new, {len(fixed)} nodeIds fixed, "
+          f"{len(kept)} manual edits kept")
     for x in fixed:
         print(f"  ~ {x}")
     no_fig = sorted(set(code) - set(figc))
     no_code = sorted(set(figc) - set(code))
     if no_fig:
-        print(f"  нет в Figma ({len(no_fig)}): " + ", ".join(no_fig))
+        print(f"  missing in Figma ({len(no_fig)}): " + ", ".join(no_fig))
     if no_code:
-        print(f"  нет в коде ({len(no_code)}): " + ", ".join(no_code))
+        print(f"  missing in code ({len(no_code)}): " + ", ".join(no_code))
     if not key:
-        print("! fileKey неизвестен — укажи --file-key (из URL figma.com/design/<fileKey>/…)")
+        print("! fileKey unknown: pass --file-key (from the URL figma.com/design/<fileKey>/…)")
     return 0
 
 
@@ -1331,20 +1331,20 @@ def figma_url(key, node_id):
     return f"https://www.figma.com/design/{key}/?node-id={node_id.replace(':', '-')}"
 
 
-LINKS_HEADER = ("/* Сгенерировано execution/figma_sync.py storybook-links из ds/figma-map.json — руками не править.\n"
-                "   Ключ — title компонента в Storybook или его последний сегмент (имя = якорь). */\n")
+LINKS_HEADER = ("/* Generated by execution/figma_sync.py storybook-links from ds/figma-map.json; do not edit by hand.\n"
+                "   The key is the component title in Storybook or its last segment (name = anchor). */\n")
 
 
 def cmd_links(args):
     root = args.root
     fmap = load_map(root)
     if fmap is None:
-        print("· ds/figma-map.json нет — ссылки на Figma не генерирую (это нормально до переноса ДС в Figma)")
+        print("· ds/figma-map.json not found, so no Figma links are generated (normal until the design system is in Figma)")
         return 0
     key = fmap.get("fileKey")
     links = {}
     if not key:
-        print("! в ds/figma-map.json нет fileKey — figma-links.ts будет пустым")
+        print("! ds/figma-map.json has no fileKey, so figma-links.ts will be empty")
     else:
         for n, e in sorted((fmap.get("components") or {}).items()):
             if not e.get("nodeId"):
@@ -1358,12 +1358,12 @@ def cmd_links(args):
     body += "};\n"
     f = path_of(root, "figma_links")
     if not f.parent.parent.exists():
-        print(f"! нет {f.parent.parent.relative_to(root)} — пропускаю")
+        print(f"! {f.parent.parent.relative_to(root)} not found, skipping")
         return 0
     f.parent.mkdir(parents=True, exist_ok=True)
     if not f.exists() or f.read_text(encoding="utf-8") != body:
         f.write_text(body, encoding="utf-8")
-    print(f"✓ {f.relative_to(root)}: {len(links)} ссылок")
+    print(f"✓ {f.relative_to(root)}: {len(links)} links")
     return 0
 
 
@@ -1371,7 +1371,7 @@ def cmd_code_connect(args):
     root = args.root
     fmap = load_map(root)
     if fmap is None:
-        sys.exit("✗ нет ds/figma-map.json — сначала figma_sync.py map --figma …")
+        sys.exit("✗ ds/figma-map.json not found: run figma_sync.py map --figma … first")
     out = []
     for n, e in sorted((fmap.get("components") or {}).items()):
         if not e.get("nodeId") or not e.get("source"):
@@ -1384,49 +1384,49 @@ def cmd_code_connect(args):
     f = out_dir(root) / "code-connect.json"
     f.write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"✓ {f.relative_to(root)}: {len(out)} mappings (label {args.label}), fileKey {fmap.get('fileKey') or '—'}")
-    print("  send_code_connect_mappings — только на тарифах Organization / Enterprise.")
+    print("  send_code_connect_mappings works only on Organization / Enterprise plans.")
     return 0
 
 
 def main(argv=None):
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--root", type=lambda p: Path(p).resolve(), default=TEMPLATE_ROOT,
-                        help="корень проекта (по умолчанию — корень шаблона)")
-    common.add_argument("--primitives-name", help="имя коллекции примитивов в Figma (по умолчанию primitives "
-                        "или ds/figma-map.json → collections.primitives)")
-    common.add_argument("--semantic-name", help="имя коллекции semantic в Figma (по умолчанию semantic "
-                        "или ds/figma-map.json → collections.semantic)")
-    ap = argparse.ArgumentParser(description="Синхронизация ДС: код ↔ Figma ↔ Storybook")
+                        help="project root (default: the template root)")
+    common.add_argument("--primitives-name", help="name of the primitives collection in Figma (default: primitives "
+                        "or ds/figma-map.json → collections.primitives)")
+    common.add_argument("--semantic-name", help="name of the semantic collection in Figma (default: semantic "
+                        "or ds/figma-map.json → collections.semantic)")
+    ap = argparse.ArgumentParser(description="Design system sync: code ↔ Figma ↔ Storybook")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("push-variables-js", parents=[common], help="JS upsert Variables для use_figma")
-    p.add_argument("--limit", type=int, default=PART_LIMIT, help="макс. байт на файл")
-    p.add_argument("--show-primitive-colors", action="store_true", help="не скрывать цвета-примитивы из пикеров")
+    p = sub.add_parser("push-variables-js", parents=[common], help="JS upsert of Variables for use_figma")
+    p.add_argument("--limit", type=int, default=PART_LIMIT, help="max bytes per file")
+    p.add_argument("--show-primitive-colors", action="store_true", help="do not hide color primitives from pickers")
     p.set_defaults(fn=cmd_push)
-    p = sub.add_parser("export-js", parents=[common], help="read-only JS экспорта Variables и компонентов")
+    p = sub.add_parser("export-js", parents=[common], help="read-only JS that exports Variables and components")
     p.set_defaults(fn=cmd_export)
-    p = sub.add_parser("check", parents=[common], help="сверка код ↔ Figma → drift.md")
+    p = sub.add_parser("check", parents=[common], help="code ↔ Figma drift check → drift.md")
     p.add_argument("--figma", required=True)
     p.add_argument("--only", choices=["tokens", "components"])
     p.set_defaults(fn=cmd_check)
-    p = sub.add_parser("init-tokens", parents=[common], help="один раз: Variables Figma → tokens.json")
+    p = sub.add_parser("init-tokens", parents=[common], help="once: Figma Variables → tokens.json")
     p.add_argument("--figma", required=True)
     p.add_argument("--force", action="store_true")
     p.set_defaults(fn=cmd_init_tokens)
-    p = sub.add_parser("pull-variables", parents=[common], help="значения из Figma → tokens.json")
+    p = sub.add_parser("pull-variables", parents=[common], help="values from Figma → tokens.json")
     p.add_argument("--figma", required=True)
     p.add_argument("--apply", action="store_true")
     p.set_defaults(fn=cmd_pull)
-    p = sub.add_parser("map", parents=[common], help="ds/figma-map.json по именам")
+    p = sub.add_parser("map", parents=[common], help="ds/figma-map.json by name")
     p.add_argument("--figma", required=True)
     p.add_argument("--file-key")
-    p.add_argument("--refresh", action="store_true", help="перезаписать авто-поля (кроме manual: true)")
+    p.add_argument("--refresh", action="store_true", help="overwrite auto fields (except manual: true)")
     p.set_defaults(fn=cmd_map)
     p = sub.add_parser("storybook-links", parents=[common], help="app/src/stories/figma-links.ts")
     p.set_defaults(fn=cmd_links)
     p = sub.add_parser("code-connect", parents=[common], help="payload send_code_connect_mappings")
     p.add_argument("--label", choices=["React", "Storybook"], default="React")
     p.set_defaults(fn=cmd_code_connect)
-    p = sub.add_parser("fetch-rest", parents=[common], help="компоненты Figma через REST (FIGMA_TOKEN) → rest.json")
+    p = sub.add_parser("fetch-rest", parents=[common], help="Figma components via REST (FIGMA_TOKEN) → rest.json")
     p.add_argument("--file-key")
     p.add_argument("--out")
     p.set_defaults(fn=cmd_fetch_rest)

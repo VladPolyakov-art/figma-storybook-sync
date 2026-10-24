@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Тесты execution/figma_sync.py — без сети и без Figma.
+Tests for execution/figma_sync.py — no network and no Figma.
 
-Фикстуры: execution/tests/fixtures/figma/
-  project/     — мини-проект (tokens.json с semantic и semantic-dark, ds/components.md, Button и Card в app/src/components/ds)
-  match.json   — ответ export.js, совпадающий с кодом
-  drift.json   — ответ с расхождениями, в обёртке MCP ({content: [{type: text, text: "..."}]})
-  empty.json   — пустой файл Figma
-  mock_figma.mjs — мок Plugin API: прогон push-variables*.js (дважды) и export.js в node
+Fixtures: execution/tests/fixtures/figma/
+  project/     — a mini project (tokens.json with semantic and semantic-dark, ds/components.md, Button and Card in app/src/components/ds)
+  match.json   — an export.js response that matches the code
+  drift.json   — a response with drift, in an MCP wrapper ({content: [{type: text, text: "..."}]})
+  empty.json   — an empty Figma file
+  mock_figma.mjs — a Plugin API mock: runs push-variables*.js (twice) and export.js in node
 
-Запуск: python3 -m unittest execution/tests/test_figma_sync.py -v  (из корня шаблона)
+Run: python3 -m unittest execution/tests/test_figma_sync.py -v  (from the template root)
 """
 import contextlib
 import io
@@ -30,7 +30,7 @@ NODE = shutil.which("node")
 
 
 def run(*argv):
-    """Запуск подкоманды → (код выхода, stdout)."""
+    """Run a subcommand → (exit code, stdout)."""
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         try:
@@ -76,7 +76,7 @@ class TestModel(unittest.TestCase):
         self.assertEqual(sd["values"]["dark"], {"a": ["primitives", "color/gray/900"]})
         self.assertEqual(sd["type"], "COLOR")
         bf = self.idx[("semantic", "border/focus")]
-        self.assertTrue(bf["fallback"].get("dark"))  # нет в semantic-dark → значение light
+        self.assertTrue(bf["fallback"].get("dark"))  # not in semantic-dark → the light value
         cv = fs.code_vars(self.model)
         self.assertEqual(fs.resolve(cv, self.model["modes"], "semantic", "surface/default", "dark"), "#111827FF")
         self.assertEqual(fs.resolve(cv, self.model["modes"], "semantic", "space/inline", "light"), 8)
@@ -125,11 +125,11 @@ class TestJs(Base):
         self.assertFalse((self.root / ".tmp" / "figma" / "push-variables.js").exists())
         first = parts[0].read_text("utf-8")
         self.assertIn('"name":"primitives"', first)
-        self.assertNotIn('"name":"semantic"', first)  # сначала примитивы
+        self.assertNotIn('"name":"semantic"', first)  # primitives first
         for p in parts:
             self.assertLessEqual(len(p.read_bytes()), 5000 + 600)
 
-    @unittest.skipUnless(NODE, "нет node")
+    @unittest.skipUnless(NODE, "node not found")
     def test_node_syntax(self):
         run("push-variables-js", "--root", self.root, "--limit", "5000")
         run("export-js", "--root", self.root)
@@ -139,9 +139,9 @@ class TestJs(Base):
             r = subprocess.run([NODE, "--check", str(wrapped)], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, f"{f.name}: {r.stderr}")
 
-    @unittest.skipUnless(NODE, "нет node")
+    @unittest.skipUnless(NODE, "node not found")
     def test_mock_roundtrip_idempotent(self):
-        """push в мок Figma → повторный push ничего не меняет → export → check без расхождений."""
+        """push to the Figma mock → a repeated push changes nothing → export → check with no drift."""
         run("push-variables-js", "--root", self.root, "--limit", "5000")
         run("export-js", "--root", self.root)
         d = self.root / ".tmp" / "figma"
@@ -160,7 +160,7 @@ class TestJs(Base):
         exp.write_text(json.dumps(res["export"]), "utf-8")
         self.assertEqual(res["export"]["fileKey"], "MOCKKEY")
         names = {c["name"] for c in res["export"]["components"]}
-        self.assertEqual(names, {"Components/Button", "Card", "Icon/Check"})  # варианты внутри set не попадают
+        self.assertEqual(names, {"Components/Button", "Card", "Icon/Check"})  # variants inside a set are not counted
         code, out = run("check", "--root", self.root, "--figma", exp)
         self.assertEqual(code, 0, out + (d / "drift.md").read_text("utf-8"))
 
@@ -170,36 +170,36 @@ class TestCheck(Base):
         code, out = run("check", "--root", self.root, "--figma", FX / "match.json")
         self.assertEqual(code, 0, out)
         md = (self.root / ".tmp" / "figma" / "drift.md").read_text("utf-8")
-        self.assertIn("Токены — расхождений 0", md)
-        self.assertIn("`Tooltip` — в ds/components.md, нет в коде", md)
+        self.assertIn("Tokens — drift 0", md)
+        self.assertIn("`Tooltip`: in ds/components.md, missing in code", md)
 
     def test_drift(self):
         code, out = run("check", "--root", self.root, "--figma", FX / "drift.json")
         self.assertEqual(code, 1)
         md = (self.root / ".tmp" / "figma" / "drift.md").read_text("utf-8")
-        for needle in ("| значение | `primitives/color/gray/900 [default]` | #111827FF | #0F172AFF |",
-                       "| нет в Figma | `primitives/radius/md` |",
-                       "| нет в коде | `primitives/color/new/500` |",
-                       "| алиас | `semantic/text/primary [light]` | → primitives/color/gray/900 | → primitives/color/accent/600 |",
-                       "| алиас отвязан в Figma | `semantic/space/inline [light]` |",
-                       "| нет в Figma | `Card` |", "| только в Figma | `Badge` |",
-                       "variant: только Figma ['tertiary'] · только код (variant) ['ghost']"):
+        for needle in ("| value | `primitives/color/gray/900 [default]` | #111827FF | #0F172AFF |",
+                       "| missing in Figma | `primitives/radius/md` |",
+                       "| missing in code | `primitives/color/new/500` |",
+                       "| alias | `semantic/text/primary [light]` | → primitives/color/gray/900 | → primitives/color/accent/600 |",
+                       "| alias unbound in Figma | `semantic/space/inline [light]` |",
+                       "| missing in Figma | `Card` |", "| only in Figma | `Badge` |",
+                       "variant: only Figma ['tertiary'] · only code (variant) ['ghost']"):
             self.assertIn(needle, md)
-        # одинаковый алиас — значение цели не дублируется строкой semantic
+        # same alias: the target value is not duplicated as a semantic row
         self.assertNotIn("semantic/surface/default [dark]", md)
 
     def test_empty_figma(self):
         code, out = run("check", "--root", self.root, "--figma", FX / "empty.json")
         self.assertEqual(code, 1)
-        self.assertIn("токены: 14 в коде, 0 в Figma, расхождений 14", out)
+        self.assertIn("tokens: 14 in code, 0 in Figma, drift 14", out)
 
     def test_broken_map(self):
         (self.root / "ds" / "figma-map.json").write_text(json.dumps(
             {"fileKey": "K", "components": {"Button": {"nodeId": "1:2"}, "Card": {"nodeId": "9:99"}}}), "utf-8")
         code, out = run("check", "--root", self.root, "--figma", FX / "match.json", "--only", "components")
         self.assertEqual(code, 1)
-        self.assertIn("битых nodeId в карте 1", out)
-        self.assertIn("`Card` → `9:99` нет в Figma", (self.root / ".tmp" / "figma" / "drift.md").read_text("utf-8"))
+        self.assertIn("broken nodeIds in the map 1", out)
+        self.assertIn("`Card` → `9:99` missing in Figma", (self.root / ".tmp" / "figma" / "drift.md").read_text("utf-8"))
 
     def test_story_name_heuristic(self):
         fig = json.loads((FX / "match.json").read_text("utf-8"))
@@ -208,9 +208,9 @@ class TestCheck(Base):
         p = self.tmp / "heur.json"
         p.write_text(json.dumps(fig), "utf-8")
         code, _ = run("check", "--root", self.root, "--figma", p, "--only", "components")
-        self.assertEqual(code, 0)  # эвристика в код выхода не входит
+        self.assertEqual(code, 0)  # the heuristic is not part of the exit code
         md = (self.root / ".tmp" / "figma" / "drift.md").read_text("utf-8")
-        self.assertIn("`Card` · Elevation: нет story с Flat", md)
+        self.assertIn("`Card` · Elevation: no story with Flat", md)
 
 
 class TestPull(Base):
@@ -222,15 +222,15 @@ class TestPull(Base):
         self.assertIn('~ color.gray.900: "#111827" → "#0F172A"', out)
         self.assertIn('~ space.4: {"value": 4, "unit": "px"} → {"value": 6, "unit": "px"}', out)
         self.assertIn('~ semantic.text.primary: "{color.gray.900}" → "{color.accent.600}"', out)
-        self.assertIn("без алиаса — в semantic нельзя", out)
+        self.assertIn("without an alias, which is not allowed in semantic", out)
         self.assertIn("+ primitives/color/new/500", out)
-        self.assertEqual(tok.read_text("utf-8"), before)  # без --apply не пишет
+        self.assertEqual(tok.read_text("utf-8"), before)  # does not write without --apply
         run("pull-variables", "--root", self.root, "--figma", FX / "drift.json", "--apply")
         data = json.loads(tok.read_text("utf-8"))
         self.assertEqual(data["color"]["gray"]["900"]["$value"], "#0F172A")
         self.assertEqual(data["space"]["4"]["$value"], {"value": 6, "unit": "px"})
         self.assertEqual(data["semantic"]["text"]["primary"]["$value"], "{color.accent.600}")
-        self.assertEqual(data["semantic"]["space"]["inline"]["$value"], "{space.8}")  # отвязанный — не тронут
+        self.assertEqual(data["semantic"]["space"]["inline"]["$value"], "{space.8}")  # the unbound one is untouched
         self.assertNotIn("new", data["color"])
 
     def test_figma_component_names(self):
@@ -240,9 +240,9 @@ class TestPull(Base):
             {"name": "DataTable/Row", "nodeId": "3", "type": "COMPONENT_SET"},
             {"name": "Forms/Select", "nodeId": "4", "type": "COMPONENT_SET"}]}
         out, _, ignored = fs.figma_components(fig, {"IconButton": "", "DataTable": "", "Select": ""})
-        self.assertEqual(ignored, ["Icon/x"])  # иконки — да, IconButton — нет
-        self.assertEqual(out["DataTable"]["nodeId"], "3")  # часть → родитель
-        self.assertEqual(out["Select"]["nodeId"], "4")  # Категория/Имя
+        self.assertEqual(ignored, ["Icon/x"])  # icons are ignored, IconButton is not
+        self.assertEqual(out["DataTable"]["nodeId"], "3")  # part → parent
+        self.assertEqual(out["Select"]["nodeId"], "4")  # Category/Name
         self.assertNotIn("Row", out)
 
     def test_load_figma_dir_merges_parts(self):
@@ -266,15 +266,15 @@ class TestMapLinksCodeConnect(Base):
     def test_map_preserves_manual(self):
         fmap = self.root / "ds" / "figma-map.json"
         fmap.write_text(json.dumps({"components": {
-            "Button": {"nodeId": "1:2", "figmaName": "Button (ручное имя)", "note": "моё"},
+            "Button": {"nodeId": "1:2", "figmaName": "Button (manual name)", "note": "mine"},
             "Card": {"nodeId": "7:7", "manual": True}}}), "utf-8")
         code, out = run("map", "--root", self.root, "--figma", FX / "match.json")
         self.assertEqual(code, 0, out)
         m = json.loads(fmap.read_text("utf-8"))
         self.assertEqual(m["fileKey"], "FIXTUREKEY")
         b = m["components"]["Button"]
-        self.assertEqual(b["figmaName"], "Button (ручное имя)")
-        self.assertEqual(b["note"], "моё")
+        self.assertEqual(b["figmaName"], "Button (manual name)")
+        self.assertEqual(b["note"], "mine")
         self.assertEqual(b["source"], "app/src/components/ds/Button/Button.tsx")
         self.assertEqual(b["storyTitle"], "Components/Button")
         self.assertEqual(m["components"]["Card"], {"nodeId": "7:7", "manual": True})
@@ -291,11 +291,11 @@ class TestMapLinksCodeConnect(Base):
     def test_storybook_links(self):
         code, out = run("storybook-links", "--root", self.root)
         self.assertEqual(code, 0)
-        self.assertIn("нет", out)  # без карты — тихо
+        self.assertIn("not found", out)  # without a map it exits quietly
         run("map", "--root", self.root, "--figma", FX / "match.json")
         run("storybook-links", "--root", self.root)
         ts = (self.root / "app" / "src" / "stories" / "figma-links.ts").read_text("utf-8")
-        self.assertIn("руками не править", ts)
+        self.assertIn("do not edit by hand", ts)
         self.assertIn("export const figmaLinks: Record<string, string> = {", ts)
         self.assertIn('"Components/Button": "https://www.figma.com/design/FIXTUREKEY/?node-id=1-2"', ts)
         self.assertIn('"Card": "https://www.figma.com/design/FIXTUREKEY/?node-id=1-5"', ts)
@@ -330,7 +330,7 @@ class TestMapLinksCodeConnect(Base):
 
 class TestCustomPaths(Base):
     def test_figma_sync_json_paths(self):
-        """Другая раскладка (src/ вместо app/src/, design-tokens/) через figma-sync.json → paths."""
+        """A different layout (src/ instead of app/src/, design-tokens/) via figma-sync.json → paths."""
         shutil.move(str(self.root / "app" / "src"), str(self.root / "src"))
         shutil.move(str(self.root / "tokens"), str(self.root / "design-tokens"))
         (self.root / "figma-sync.json").write_text(json.dumps({"paths": {
@@ -348,7 +348,7 @@ class TestCustomPaths(Base):
 
 class TestInitTokens(Base):
     def test_roundtrip_from_figma(self):
-        """Figma-first проект: init-tokens из экспорта, затем check по токенам без расхождений."""
+        """Figma-first project: init-tokens from the export, then a token check with no drift."""
         (self.root / "tokens" / "tokens.json").unlink()
         code, out = run("init-tokens", "--root", self.root, "--figma", FX / "match.json")
         self.assertEqual(code, 0, out)
@@ -361,7 +361,7 @@ class TestInitTokens(Base):
 
 
 class TestFetchRest(unittest.TestCase):
-    """fetch-rest: разбор GET /v1/files/:key без сети (getter подменён)."""
+    """fetch-rest: parsing GET /v1/files/:key without a network (the getter is replaced)."""
     DOC = {"document": {"children": [{"type": "CANVAS", "name": "UI Kit", "children": [
         {"type": "FRAME", "name": "Buttons", "children": [
             {"type": "COMPONENT_SET", "id": "1:1", "name": "Button", "componentPropertyDefinitions": {
@@ -375,7 +375,7 @@ class TestFetchRest(unittest.TestCase):
 
     def test_components_like_plugin_export(self):
         comps = {c["name"]: c for c in fs.rest_components(self.DOC)}
-        self.assertEqual(sorted(comps), ["Button", "Logo", "Tag"])  # варианты внутри наборов не считаются
+        self.assertEqual(sorted(comps), ["Button", "Logo", "Tag"])  # variants inside sets are not counted
         self.assertEqual(comps["Button"]["variantProps"], {"variant": ["primary", "secondary"]})
         self.assertEqual(comps["Tag"]["variantProps"], {"Tone": ["Neutral", "Danger"], "Size": ["sm"]})
         self.assertEqual((comps["Logo"]["type"], comps["Logo"]["page"]), ("COMPONENT", "UI Kit"))

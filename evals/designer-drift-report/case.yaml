@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: designer-drift-report
 expected_outcome: |
-  Агент запускает сверку и точно перечисляет расхождения: gray/900 и space/4 поменяли значение, radius/md нет в Figma, text/primary перевязан на accent/600, space/inline отвязан от алиаса (10), color/new/500 нет в коде; Card нет в Figma, Badge только в Figma, у Button вариант tertiary в Figma против ghost в коде. Объясняет, что значения токенов переносятся через pull-variables после подтверждения, а структурные изменения (Badge, tertiary) — это задача на код, и ничего не применяет сам.
+  The agent runs the drift check and lists the drift exactly: gray/900 and space/4 changed value, radius/md is missing in Figma, text/primary was rebound to accent/600, space/inline was detached from its alias (10), color/new/500 is missing in code; Card is missing in Figma, Badge exists only in Figma, and Button has the variant tertiary in Figma versus ghost in code. It explains that token values are moved through pull-variables after confirmation, while structural changes (Badge, tertiary) are a task for code, and applies nothing itself.
 context:
   scaffold_script: place-files.sh

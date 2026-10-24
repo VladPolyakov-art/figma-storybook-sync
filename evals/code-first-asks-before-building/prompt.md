@@ -5,6 +5,6 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Skill, Write, Edit, Bash]
 ---
 
-Хочу связать нашу дизайн-систему с Figma и Storybook, чтобы в Figma и в Storybook были одни и те же компоненты и всё это было связано между собой. Тариф Figma у нас Professional, Organization нет, так что Code Connect недоступен. Figma-файл: https://www.figma.com/design/Qx7AcmeDS/Acme-DS. Репозиторий — текущая папка. С чего начнём?
+I want to connect our design system to Figma and Storybook, so that Figma and Storybook have the same components and everything is linked together. Our Figma plan is Professional, we don't have Organization, so Code Connect is not available. Figma file: https://www.figma.com/design/Qx7AcmeDS/Acme-DS. The repository is the current folder. Where do we start?
 
 Input files: package.json, src/, .storybook/

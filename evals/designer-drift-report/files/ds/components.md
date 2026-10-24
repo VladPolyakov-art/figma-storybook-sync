@@ -1,11 +1,11 @@
-# Components — фикстура
+# Components — fixture
 
 ## 1. Base
 
 ### Button
-Кнопка.
+Button.
 
 ### 5.1 Card *(new)*
-Карточка.
+Card.
 
-#### Tooltip — только в каталоге
+#### Tooltip — catalog only

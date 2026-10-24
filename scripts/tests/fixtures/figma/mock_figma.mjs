@@ -1,7 +1,7 @@
-// Мок Plugin API Figma для тестов figma_sync.py (без сети и без Figma).
+// Figma Plugin API mock for the figma_sync.py tests (no network, no Figma).
 // node mock_figma.mjs [--components comps.json] push-1.js [push-2.js ...] -- export.js
-// Прогоняет push-файлы дважды (второй раз — проверка идемпотентности), затем export.js.
-// Печатает JSON: {first: [...результаты], second: [...], export: {...}}.
+// Runs the push files twice (the second run checks idempotency), then export.js.
+// Prints JSON: {first: [...results], second: [...], export: {...}}.
 import { readFileSync } from "node:fs";
 
 const args = process.argv.slice(2);

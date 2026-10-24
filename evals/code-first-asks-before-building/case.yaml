@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: code-first-asks-before-building
 expected_outcome: |
-  Агент изучает репозиторий (Vite + React, компоненты в src/components/<Name>/<Name>.tsx, токены вручную в src/styles/tokens.css, Storybook без addon-designs, нет CI) и присылает план: код как источник правды, перенос tokens.css в tokens.json, одинаковые имена вместо таблицы props, ссылки в обе стороны без Code Connect, CI с FIGMA_TOKEN и Chromatic, которые пользователь задаёт сам. Ждёт подтверждения и не меняет проект и Figma до него.
+  The agent explores the repository (Vite + React, components in src/components/<Name>/<Name>.tsx, tokens kept by hand in src/styles/tokens.css, Storybook without addon-designs, no CI) and sends a plan: code as the source of truth, moving tokens.css into tokens.json, identical names instead of a props mapping table, links in both directions without Code Connect, CI with FIGMA_TOKEN and Chromatic, which the user sets up themselves. It waits for confirmation and does not change the project or Figma before then.
 context:
   scaffold_script: place-files.sh

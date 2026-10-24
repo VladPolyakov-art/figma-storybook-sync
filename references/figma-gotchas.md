@@ -1,49 +1,49 @@
-# Грабли Figma MCP и Plugin API
+# Figma MCP and Plugin API pitfalls
 
-Собрано на реальной синхронизации (реальный проект: 322 Variables, 54 компонента). Читать перед первым `use_figma` в проекте.
+Collected from a real sync (a real project: 322 Variables, 54 components). Read before the first `use_figma` in a project.
 
-## Тарифы и доступ
-| Что | Где работает |
+## Plans and access
+| What | Where it works |
 |---|---|
-| Figma MCP (`use_figma`, `get_*`) | Professional и выше, Dev или Full seat. На Starter жёсткие лимиты вызовов — сборку ДС они быстро выбьют |
-| Code Connect (`send_code_connect_mappings`) | только Organization / Enterprise |
-| REST API: файлы, компоненты, варианты (`fetch-rest`) | любой тариф, личный токен со scope `file_content:read` |
-| REST API: Variables | только Enterprise. Поэтому в CI токены сверяются только с `tokens.json`, полную сверку Variables делает `check` через MCP |
-| Storybook Connect (плагин Figma) | через Chromatic, бесплатный тариф подходит |
+| Figma MCP (`use_figma`, `get_*`) | Professional and above, Dev or Full seat. Starter has hard call limits, and a design system build hits them quickly |
+| Code Connect (`send_code_connect_mappings`) | Organization / Enterprise only |
+| REST API: files, components, variants (`fetch-rest`) | any plan, personal token with scope `file_content:read` |
+| REST API: Variables | Enterprise only. That is why in CI tokens are checked only against `tokens.json`, and the full Variables check is done by `check` through MCP |
+| Storybook Connect (Figma plugin) | through Chromatic, the free plan is enough |
 
-Ошибка доступа или лимита → `whoami`, проверить, в какой команде лежит файл. Не обходить: попросить пользователя подключить MCP или перенести файл в команду Pro.
+On an access or limit error → `whoami`, check which team the file is in. Do not work around it: ask the user to connect MCP or move the file to a Pro team.
 
-## Вызовы `use_figma`
-- **Ответ — не больше 48 КБ.** Экспорт большой ДС не влезает: `export-js` пишет части (`export-variables-<коллекция>.js`, `export-components.js`). Ответы класть в `.tmp/figma/export/*.json`, `--figma` принимает папку и склеивает.
-- **Запрос — держать до ~40 КБ.** `push-variables-js` сам режет на части; отправлять по одной, по порядку (сначала примитивы, потом semantic).
-- **`figma.loadAllPagesAsync()` в MCP запрещён.** Страницы грузить по одной: `page.loadAsync()`.
-- **Никакого `throw` в конце мутирующего вызова** — откатывает всю транзакцию. Отчёт возвращать через `return`.
-- **Скрипт целиком в каждом вызове** — с диска Figma ничего не читает.
-- **Проверять по факту, не по логу.** После записи — read-only вызов (`boundVariables`, `textStyleId`, типы узлов) и `get_screenshot`.
-- Один логический объект за вызов: один компонент с матрицей вариантов ≤ 24 ячеек или один экран.
+## `use_figma` calls
+- **The response must be at most 48 KB.** The export of a large design system does not fit: `export-js` writes parts (`export-variables-<collection>.js`, `export-components.js`). Put the responses in `.tmp/figma/export/*.json`; `--figma` accepts a folder and merges them.
+- **Keep the request under ~40 KB.** `push-variables-js` splits itself into parts; send them one by one, in order (primitives first, then semantic).
+- **`figma.loadAllPagesAsync()` is forbidden in MCP.** Load pages one at a time: `page.loadAsync()`.
+- **No `throw` at the end of a mutating call**: it rolls back the whole transaction. Return the report with `return`.
+- **The whole script goes in every call**: Figma reads nothing from disk.
+- **Verify by the actual result, not the log.** After a write, make a read-only call (`boundVariables`, `textStyleId`, node types) and `get_screenshot`.
+- One logical object per call: one component with a variant matrix of ≤ 24 cells, or one screen.
 
-## Variables и стили
-- Файл уже существует со своими именами коллекций (`Primitive` / `Semantic`) → один раз записать в карту: `"collections": {"primitives": "Primitive", "semantic": "Semantic"}`. Дальше push и check работают без флагов.
-- letter-spacing в `em` — только FLOAT (Figma не привязывает межбуквенный интервал к STRING).
-- Составные токены (typography, shadow-объекты) в Variables не ложатся — это TextStyles и EffectStyles. Скрипт их перечисляет в отчёте как пропущенные.
-- Имена стилей нормализовать: `name.replace(/\s*\/\s*/g, '/')`.
+## Variables and styles
+- The file already exists with its own collection names (`Primitive` / `Semantic`) → write them to the map once: `"collections": {"primitives": "Primitive", "semantic": "Semantic"}`. After that push and check work without flags.
+- Letter-spacing in `em` is FLOAT only (Figma does not bind letter spacing to STRING).
+- Composite tokens (typography, shadow objects) do not fit into Variables: they are TextStyles and EffectStyles. The script lists them in the report as skipped.
+- Normalize style names: `name.replace(/\s*\/\s*/g, '/')`.
 
-## Компоненты
-- Шрифт: `loadFontAsync` до записи `characters`.
-- `layoutSizingHorizontal/Vertical` ставится только после `appendChild` в auto-layout родителя.
-- `resize()` у auto-layout компонента ставит FIXED по главной оси — для кнопок и чипов вернуть `primaryAxisSizingMode = "AUTO"`.
-- Не читать `variantProperties` во время переименования вариантов: набор временно «с ошибками». Парсить имя варианта.
-- Значения вариантов сверять до сборки с кодом (`State=error`, а не `invalid`) — иначе `check` покажет расхождение.
-- Иконки: `createNodeFromSvg` с целевыми `width/height` в самом SVG; ресайз детей искажает пропорции. `currentColor` заменить на hex, потом привязать заливку к Variable.
-- Пустой спейсер с HUG поперёк раздувается до 100 px — делать FIXED 1 px поперёк.
-- В инстанс нельзя вставить узел. Не хватает слотов → `detachInstance()` у контейнера, детей оставить инстансами.
-- Перенос детей внутри main component сохраняет текстовые оверрайды инстансов (ID не меняются), но оверрайды размеров после смены `layoutMode` ломаются — переприменить на инстансах.
+## Components
+- Fonts: `loadFontAsync` before writing `characters`.
+- `layoutSizingHorizontal/Vertical` is set only after `appendChild` into an auto-layout parent.
+- `resize()` on an auto-layout component sets FIXED on the primary axis. For buttons and chips, restore `primaryAxisSizingMode = "AUTO"`.
+- Do not read `variantProperties` while renaming variants: the set is temporarily "with errors". Parse the variant name.
+- Check variant values against code before building (`State=error`, not `invalid`), otherwise `check` will report drift.
+- Icons: `createNodeFromSvg` with the target `width/height` in the SVG itself; resizing the children distorts proportions. Replace `currentColor` with hex, then bind the fill to a Variable.
+- An empty spacer with HUG on the cross axis stretches to 100 px: make it FIXED 1 px on the cross axis.
+- You cannot insert a node into an instance. If there are not enough slots, `detachInstance()` on the container and keep the children as instances.
+- Moving children inside a main component keeps the instances' text overrides (IDs do not change), but size overrides break after a `layoutMode` change: reapply them on the instances.
 
-## Сопоставление имён
-- Иконки (`Icon/…`) и приватные компоненты (`_…`, `.…`) скрипт не сверяет.
-- `Parent/Part` (`DataTable/Row`, `Tabs/Item`) — часть компонента `Parent`, если такого компонента нет в коде.
-- Регистр и пробелы не важны (сверка нормализует), слова — важны: `Variant=Primary` ↔ `variant="primary"` совпадают, `State=Invalid` ↔ `state="error"` — нет.
+## Name matching
+- The script does not check icons (`Icon/…`) and private components (`_…`, `.…`).
+- `Parent/Part` (`DataTable/Row`, `Tabs/Item`) is a part of the component `Parent` if there is no such component in code.
+- Case and spaces do not matter (the check normalizes them), words do: `Variant=Primary` ↔ `variant="primary"` match, `State=Invalid` ↔ `state="error"` do not.
 
-## Что не годится для ДС
-- `send_code_to_figma` создаёт слой Figma Code, а не нативные компоненты. Для быстрого снимка экрана — можно, в синхронизацию не входит.
-- Скриншоты как источник компонента — только эталон для сравнения.
+## What is not suitable for a design system
+- `send_code_to_figma` creates a Figma Code layer, not native components. It is fine for a quick screen snapshot, but it is not part of the sync.
+- Screenshots as a component source: only as a reference for comparison.
