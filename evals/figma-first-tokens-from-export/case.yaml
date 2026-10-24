@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: figma-first-tokens-from-export
+expected_outcome: |
+  В репозитории появляется tokens.json, полученный из design/figma-export.json (primitives + semantic light/dark), сверка токенов с тем же экспортом без расхождений, скрипт сборки токенов в CSS-переменные, скрипт синхронизации внутри репозитория и workflow CI, где FIGMA_TOKEN и CHROMATIC_PROJECT_TOKEN берутся из секретов и шаги пропускаются без них. Секреты не запрашиваются и не пишутся в файлы, коммитов нет.
+context:
+  scaffold_script: place-files.sh

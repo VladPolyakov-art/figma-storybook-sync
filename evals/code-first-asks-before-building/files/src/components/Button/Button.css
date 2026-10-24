@@ -1,0 +1,4 @@
+.btn { border-radius: var(--radius-md); padding: var(--space-4) var(--space-8); }
+.btn--primary { background: var(--color-accent-600); color: #fff; }
+.btn--secondary { background: var(--surface-default); color: var(--text-primary); }
+.btn--ghost { background: transparent; color: var(--text-primary); }

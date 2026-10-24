@@ -1,0 +1,68 @@
+# Проверки ДС в CI: токены ↔ код ↔ Storybook ↔ Figma. Кладётся в .github/workflows/ds.yml.
+# Плейсхолдеры (заменить при установке): __APP_DIR__ — папка с package.json (или "."),
+#   __SYNC__ — путь к figma_sync.py от корня репо (например scripts/ds/figma_sync.py).
+# Секреты задаёт пользователь сам: GitHub → Settings → Secrets and variables → Actions.
+#   FIGMA_TOKEN             — личный токен Figma, scope file_content:read → шаг «Связь с Figma»;
+#   CHROMATIC_PROJECT_TOKEN — токен проекта Chromatic (бесплатный тариф) → шаг «Chromatic».
+# Без секрета шаг пропускается с предупреждением, а не падает.
+name: ds
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ds:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Chromatic сравнивает с прошлыми сборками по истории git
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: __APP_DIR__/package-lock.json
+
+      - name: Зависимости
+        working-directory: __APP_DIR__
+        run: npm ci
+
+      - name: Токены собраны (сгенерированный CSS совпадает с tokens.json)
+        working-directory: __APP_DIR__
+        run: |
+          npm run tokens:build
+          git diff --exit-code || { echo "::error::токены устарели: запусти npm run tokens:build и закоммить"; exit 1; }
+
+      - name: Storybook собирается
+        working-directory: __APP_DIR__
+        run: npm run build-storybook
+
+      - name: Связь с Figma (компоненты, варианты, карта)
+        env:
+          FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+        run: |
+          if [ -z "$FIGMA_TOKEN" ]; then echo "::warning::нет секрета FIGMA_TOKEN — сверка с Figma пропущена"; exit 0; fi
+          python3 __SYNC__ fetch-rest --root .
+          python3 __SYNC__ check --root . --figma .tmp/figma/rest.json --only components
+
+      - name: Chromatic
+        working-directory: __APP_DIR__
+        env:
+          CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+        run: |
+          if [ -z "$CHROMATIC_PROJECT_TOKEN" ]; then echo "::warning::нет секрета CHROMATIC_PROJECT_TOKEN — публикация Storybook пропущена"; exit 0; fi
+          npx -y chromatic --storybook-build-dir storybook-static --exit-zero-on-changes
+
+      - name: Отчёт о расхождениях
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift
+          path: .tmp/figma/drift.md
+          if-no-files-found: ignore

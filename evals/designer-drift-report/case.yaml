@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: designer-drift-report
+expected_outcome: |
+  Агент запускает сверку и точно перечисляет расхождения: gray/900 и space/4 поменяли значение, radius/md нет в Figma, text/primary перевязан на accent/600, space/inline отвязан от алиаса (10), color/new/500 нет в коде; Card нет в Figma, Badge только в Figma, у Button вариант tertiary в Figma против ghost в коде. Объясняет, что значения токенов переносятся через pull-variables после подтверждения, а структурные изменения (Badge, tertiary) — это задача на код, и ничего не применяет сам.
+context:
+  scaffold_script: place-files.sh

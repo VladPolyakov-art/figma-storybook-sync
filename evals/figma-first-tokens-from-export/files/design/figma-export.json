@@ -1,0 +1,188 @@
+{
+ "fileKey": "FIXTUREKEY",
+ "variables": [
+  {
+   "collection": "primitives",
+   "mode": "default",
+   "name": "color/gray/00",
+   "type": "COLOR",
+   "value": "#FFFFFF"
+  },
+  {
+   "collection": "primitives",
+   "mode": "default",
+   "name": "color/gray/900",
+   "type": "COLOR",
+   "value": "#111827"
+  },
+  {
+   "collection": "primitives",
+   "mode": "default",
+   "name": "color/accent/600",
+   "type": "COLOR",
+   "value": "#7C3AED"
+  },
+  {
+   "collection": "primitives",
+   "mode": "default",
+   "name": "color/scrim",
+   "type": "COLOR",
+   "value": "#11182766"
+  },
+  {
+   "collection": "primitives",
+   "mode": "default",
+   "name": "space/4",
+   "type": "FLOAT",
+   "value": 4
+  },
+  {
+   "collection": "primitives",
+   "mode": "default",
+   "name": "space/8",
+   "type": "FLOAT",
+   "value": 8
+  },
+  {
+   "collection": "primitives",
+   "mode": "default",
+   "name": "radius/md",
+   "type": "FLOAT",
+   "value": 8
+  },
+  {
+   "collection": "primitives",
+   "mode": "default",
+   "name": "font/family/sans",
+   "type": "STRING",
+   "value": "Geist"
+  },
+  {
+   "collection": "primitives",
+   "mode": "default",
+   "name": "font/weight/semibold",
+   "type": "FLOAT",
+   "value": 600
+  },
+  {
+   "collection": "primitives",
+   "mode": "default",
+   "name": "duration/fast",
+   "type": "FLOAT",
+   "value": 120
+  },
+  {
+   "collection": "semantic",
+   "mode": "light",
+   "name": "surface/default",
+   "type": "COLOR",
+   "aliasOf": {
+    "collection": "primitives",
+    "name": "color/gray/00"
+   }
+  },
+  {
+   "collection": "semantic",
+   "mode": "light",
+   "name": "text/primary",
+   "type": "COLOR",
+   "aliasOf": {
+    "collection": "primitives",
+    "name": "color/gray/900"
+   }
+  },
+  {
+   "collection": "semantic",
+   "mode": "light",
+   "name": "border/focus",
+   "type": "COLOR",
+   "aliasOf": {
+    "collection": "primitives",
+    "name": "color/accent/600"
+   }
+  },
+  {
+   "collection": "semantic",
+   "mode": "light",
+   "name": "space/inline",
+   "type": "FLOAT",
+   "aliasOf": {
+    "collection": "primitives",
+    "name": "space/8"
+   }
+  },
+  {
+   "collection": "semantic",
+   "mode": "dark",
+   "name": "surface/default",
+   "type": "COLOR",
+   "aliasOf": {
+    "collection": "primitives",
+    "name": "color/gray/900"
+   }
+  },
+  {
+   "collection": "semantic",
+   "mode": "dark",
+   "name": "text/primary",
+   "type": "COLOR",
+   "aliasOf": {
+    "collection": "primitives",
+    "name": "color/gray/00"
+   }
+  },
+  {
+   "collection": "semantic",
+   "mode": "dark",
+   "name": "border/focus",
+   "type": "COLOR",
+   "aliasOf": {
+    "collection": "primitives",
+    "name": "color/accent/600"
+   }
+  },
+  {
+   "collection": "semantic",
+   "mode": "dark",
+   "name": "space/inline",
+   "type": "FLOAT",
+   "aliasOf": {
+    "collection": "primitives",
+    "name": "space/8"
+   }
+  }
+ ],
+ "components": [
+  {
+   "name": "Components/Button",
+   "nodeId": "1:2",
+   "type": "COMPONENT_SET",
+   "variantProps": {
+    "variant": [
+     "primary",
+     "secondary",
+     "ghost"
+    ],
+    "size": [
+     "md",
+     "sm"
+    ]
+   },
+   "page": "UI Kit"
+  },
+  {
+   "name": "Card",
+   "nodeId": "1:5",
+   "type": "COMPONENT",
+   "variantProps": {},
+   "page": "UI Kit"
+  },
+  {
+   "name": "Icon/Check",
+   "nodeId": "1:9",
+   "type": "COMPONENT",
+   "variantProps": {},
+   "page": "Icons"
+  }
+ ]
+}

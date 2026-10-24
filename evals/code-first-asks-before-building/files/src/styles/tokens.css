@@ -1,0 +1,10 @@
+:root {
+  --color-gray-900: #111827;
+  --color-gray-50: #f9fafb;
+  --color-accent-600: #7c3aed;
+  --surface-default: var(--color-gray-50);
+  --text-primary: var(--color-gray-900);
+  --space-4: 4px;
+  --space-8: 8px;
+  --radius-md: 8px;
+}
